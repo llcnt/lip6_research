@@ -3,7 +3,7 @@
 """
 Created on Mon Oct 19 11:18:01 2020
 
-@author: leconte
+@author: llcnt
 """
 import pickle
 import matplotlib.pyplot as plt
