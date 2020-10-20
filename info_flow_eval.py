@@ -46,7 +46,7 @@ device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
 training_data = datasets.CIFAR10(root="data", train=True, download=True,
                                   transform=transforms.Compose([
                                       transforms.ToTensor(),
-                                      transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))
+                                      transforms.Normalize((0.49139968,  0.48215841,  0.44653091), (0.24703223,  0.24348513,  0.26158784))
                                   ]))
 
 data_variance = np.var(training_data.data / 255.0)
@@ -54,7 +54,7 @@ data_variance = np.var(training_data.data / 255.0)
 validation_data = datasets.CIFAR10(root="data", train=False, download=True,
                                   transform=transforms.Compose([
                                       transforms.ToTensor(),
-                                      transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))
+                                      transforms.Normalize((0.49139968,  0.48215841,  0.44653091), (0.24703223,  0.24348513,  0.26158784))
                                   ]))
 
 
