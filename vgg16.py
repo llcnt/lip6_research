@@ -95,11 +95,13 @@ validation_loader = DataLoader(validation_data,
                                shuffle=True,
                                pin_memory=True)
 
-model = myModel().to(device)
-
-optimizer = optim.SGD(model.parameters(), args.learning_rate, momentum = 0.9, weight_decay =  5e-4)
 
 def main():
+    
+    model = myModel().to(device)
+
+    optimizer = optim.SGD(model.parameters(), args.learning_rate, momentum = 0.9, weight_decay =  5e-4)
+
     
     epochs_train_res_classif_loss = []
 
@@ -107,6 +109,12 @@ def main():
     epochs_Acc5 = []
     
     for epoch in range(args.epochs):
+        
+        ### adapt lr
+        adjust_learning_rate(optimizer, epoch)
+        for param_group in optimizer.param_groups:
+            print(param_group['lr'])
+        
         ### Switch to train mode
         model.train()
 
@@ -164,7 +172,13 @@ def main():
         epochs_Acc1.append(np.mean(Acc1))
         epochs_Acc5.append(np.mean(Acc5))
 
-
+#%%
+### Adapt the learning rate through iterations
+def adjust_learning_rate(optimizer, epoch):
+    """Sets the learning rate to the initial LR decayed by 2 every 30 epochs"""
+    lr = args.learning_rate * (0.5 ** (epoch // 30))
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
 #%%
 ### Compute accuracy
 def accuracy(output, target, topk=(1,)):

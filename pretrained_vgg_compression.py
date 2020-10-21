@@ -317,13 +317,15 @@ validation_loader = DataLoader(validation_data,
                                shuffle=True,
                                pin_memory=True)
 
-model = myModel(args.insertion_place, num_hiddens, num_residual_layers, num_residual_hiddens,
+
+def main():
+    
+    model = myModel(args.insertion_place, num_hiddens, num_residual_layers, num_residual_hiddens,
               args.num_embeddings, args.embedding_dim, 
               commitment_cost, decay).to(device)
 
-optimizer = optim.SGD(model.parameters(), args.learning_rate, momentum = 0.9, weight_decay =  5e-4)
+    optimizer = optim.SGD(model.parameters(), args.learning_rate, momentum = 0.9, weight_decay =  5e-4)
 
-def main():
     
     epochs_train_res_recon_error = []
     epochs_train_res_perplexity = []
@@ -334,8 +336,14 @@ def main():
     epochs_Acc5 = []
     
     for epoch in range(args.epochs):
+        
+        ### adapt lr
+        adjust_learning_rate(optimizer, epoch)
+        
+        
         ### Switch to train mode
         model.train()
+        
         train_res_recon_error = []
         train_res_perplexity = []
         train_res_classif_loss = []
@@ -415,7 +423,14 @@ def main():
         pickle.dump(epochs_Acc1, fp)
     with open("pretrained_Acc5"+"_"+str(args.epochs)+"_"+str(args.insertion_place)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.weight)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
         pickle.dump(epochs_Acc5, fp)
-
+        
+#%%
+### Adapt the learning rate through iterations
+def adjust_learning_rate(optimizer, epoch):
+    """Sets the learning rate to the initial LR decayed by 2 every 30 epochs"""
+    lr = args.learning_rate * (0.5 ** (epoch // 30))
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
 #%%
 ### Compute accuracy
 def accuracy(output, target, topk=(1,)):
