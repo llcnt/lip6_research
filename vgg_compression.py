@@ -35,7 +35,7 @@ args = parser.parse_args()
 
 #%%
 ### Device and datasets
-device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
 
 training_data = datasets.CIFAR10(root="data", train=True, download=True,
                                   transform=transforms.Compose([
@@ -257,7 +257,7 @@ class compression_model(nn.Module):
 class myModel(nn.Module):
     def __init__(self, insertion_layer, num_hiddens, num_residual_layers, num_residual_hiddens, num_embeddings, embedding_dim, commitment_cost, decay):
         super(myModel,self).__init__()
-        vgg_model = models.vgg16(pretrained=True)		
+        vgg_model = models.vgg16(pretrained=False)		
         vgg_list = list(vgg_model.features.children())
         self.final_list = []
         for i, layer in enumerate(vgg_list):
