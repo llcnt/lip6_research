@@ -16,7 +16,14 @@ To train a (basic vgg16) on cifar10 classification, run the folowing :
 To insert a compression module (witout buffer) in between vgg layers, run the following :
 
 	python info_flow_eval.py 100 29 64 512 1
- (it runs for 100 epochs, with a 1 weight, and use a codebook of size (64, 512) inserted after the layer 29)
+ (it runs for 100 epochs, with a 1 weight, and uses a codebook of size (64, 512) inserted after the layer 29)
 
+To insert a compression module (witout buffer) in between vgg layers, with a pretrained VGG where layers are frozen except for compression module, run the following :
 
+	python pretrained_vgg_compression.py 100 29 64 512 1000 2e-4
+ (it runs for 100 epochs, with a learning rate of 2e-4, with a 1000 weight, and uses a codebook of size (64, 512) inserted after the layer 29)
  
+To insert a compression module (witout buffer) in between vgg layers, without any pretraining, run the following :
+
+	python vgg_compression.py 100 29 64 512 1000 2e-4
+ (it runs for 100 epochs, with a learning rate of 2e-4, with a 1000 weight, and uses a codebook of size (64, 512) inserted after the layer 29)
