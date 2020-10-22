@@ -324,8 +324,8 @@ def main():
               args.num_embeddings, args.embedding_dim, 
               commitment_cost, decay).to(device)
 
-    optimizer = optim.SGD(model.parameters(), args.learning_rate, momentum = 0.9, weight_decay =  5e-4)
-
+    # optimizer = optim.SGD(model.parameters(), args.learning_rate, momentum = 0.9, weight_decay =  5e-4)
+    optimizer = optim.Adam(model.parameters(), args.learning_rate)
     
     epochs_train_res_recon_error = []
     epochs_train_res_perplexity = []
@@ -363,7 +363,7 @@ def main():
             
             # print(output.shape, target.shape)
             classif_loss = nn.CrossEntropyLoss()(output, target)
-            loss += args.weight*classif_loss
+            loss = args.weight*classif_loss
             
             loss.backward()
         

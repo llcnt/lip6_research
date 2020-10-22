@@ -26,7 +26,7 @@ parser.add_argument("epochs", default= 1, type=int, help="nb of epochs to train 
 parser.add_argument("insertion_place", default= 1, type=int, help="int where to insert the compression module")
 parser.add_argument("embedding_dim", default= 64, type=int, help="dimension of the latent vae embedding")
 parser.add_argument("num_embeddings", default= 512, type=int, help="nb of embeddings in the codebook")
-parser.add_argument("weight", default= 1, type=int, help="weight for the classification loss")
+parser.add_argument("weight", default= 1, type=float, help="weight for the classification loss")
 parser.add_argument("learning_rate", default= 5e-2, type=float, help="learning rate")
 
 args = parser.parse_args()
@@ -321,7 +321,8 @@ def main():
               args.num_embeddings, args.embedding_dim, 
               commitment_cost, decay).to(device)
 
-    optimizer = optim.SGD(model.parameters(), args.learning_rate, momentum = 0.9, weight_decay =  5e-4)
+    # optimizer = optim.SGD(model.parameters(), args.learning_rate, momentum = 0.9, weight_decay =  5e-4)
+    optimizer = optim.Adam(model.parameters(), args.learning_rate)
 
     
     epochs_train_res_recon_error = []
@@ -358,6 +359,7 @@ def main():
 
             recon_error = F.mse_loss(data_recon, data_before) / data_variance
             loss = recon_error + vq_loss
+            # print(loss.item())
             
             # print(output.shape, target.shape)
             classif_loss = nn.CrossEntropyLoss()(output, target)
