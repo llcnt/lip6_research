@@ -363,7 +363,7 @@ def main():
             
             # print(output.shape, target.shape)
             classif_loss = nn.CrossEntropyLoss()(output, target)
-            loss = args.weight*classif_loss
+            loss += args.weight*classif_loss
             
             loss.backward()
         
