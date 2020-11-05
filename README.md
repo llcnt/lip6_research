@@ -28,7 +28,7 @@ To insert a compression module (witout buffer) in between vgg layers, without an
 	python vgg_compression.py 100 29 64 512 1000 2e-4
  (it runs for 100 epochs, with a learning rate of 2e-4, with a 1000 weight, and uses a codebook of size (64, 512) inserted after the layer 29)
 
-To study the impact of a compression module (witout buffer) in between vgg layers and observe the different losses and training accuracy, with a pretrained VGG where layers are frozen except for compression module, run the following :
+To study the impact of a compression module (witout buffer) in between vgg layers and observe the different losses and training accuracy (!only trained on 10 samples to gauge how it overfits!), with a pretrained VGG where layers are frozen except for compression module, run the following :
 
 	python pretrained_vgg_compression_train_bias.py 100 29 64 512 1000 2e-4
  (it runs for 100 epochs, with a learning rate of 2e-4, with a 1000 weight, and uses a codebook of size (64, 512) inserted after the layer 29)
