@@ -107,8 +107,6 @@ def main():
     
     epochs_train_res_classif_loss = []
 
-    epochs_Acc1 = []
-    epochs_Acc5 = []
     
     for epoch in range(args.epochs):
         
@@ -133,6 +131,7 @@ def main():
             
             # print(output.shape, target.shape)
             classif_loss = nn.CrossEntropyLoss()(output, target)
+            # print(classif_loss.item())
             loss = args.weight*classif_loss
             
             loss.backward()
@@ -157,6 +156,22 @@ def main():
         Acc1 = []
         Acc5 = []
         with torch.no_grad():
+            for i, (images, target) in enumerate(training_loader): #10000/256 ~ 40 steps
+                images = images.to(device)
+                target = target.to(device)
+                # compute output
+                output = model(images)
+    
+                # measure accuracy and record loss
+                acc1, acc5 = accuracy(output, target, topk=(1, 5))
+                Acc1.append(acc1.cpu().numpy())
+                Acc5.append(acc5.cpu().numpy())
+        print('training_accuracy_top_1: %.3f' % np.mean(Acc1))
+        print('training_accuracy_top_5: %.3f' % np.mean(Acc5))
+        
+        Acc1 = []
+        Acc5 = []
+        with torch.no_grad():
             for i, (images, target) in enumerate(validation_loader): #10000/256 ~ 40 steps
                 images = images.to(device)
                 target = target.to(device)
@@ -167,12 +182,11 @@ def main():
                 acc1, acc5 = accuracy(output, target, topk=(1, 5))
                 Acc1.append(acc1.cpu().numpy())
                 Acc5.append(acc5.cpu().numpy())
-                
-
         print('accuracy_top_1: %.3f' % np.mean(Acc1))
         print('accuracy_top_5: %.3f' % np.mean(Acc5))
-        epochs_Acc1.append(np.mean(Acc1))
-        epochs_Acc5.append(np.mean(Acc5))
+
+        
+    torch.save(model.state_dict(), '/home/leconte/Documents/information_quantization/vggmodel.pt')
 
 #%%
 ### Adapt the learning rate through iterations
