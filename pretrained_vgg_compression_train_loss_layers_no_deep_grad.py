@@ -452,6 +452,12 @@ def main():
         
         
         
+    with open("pretrained_train_res_recon_error_b"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
+        pickle.dump(epochs_train_res_recon_error_b, fp)
+    with open("pretrained_train_res_perplexity_b"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
+        pickle.dump(epochs_train_res_perplexity_b, fp)
+    with open("pretrained_train_res_vq_loss_b"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
+        pickle.dump(epochs_train_res_vq_loss_b, fp)
         
     with open("pretrained_train_res_recon_error"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
         pickle.dump(epochs_train_res_recon_error, fp)
