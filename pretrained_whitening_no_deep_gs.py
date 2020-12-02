@@ -74,6 +74,22 @@ class VectorQuantizerEMA(nn.Module):
         self._epsilon = epsilon
         
         self.update_codebook = True
+        
+    # def gram_schmidt(vv):    
+    #     nk = vv.size(0)
+    #     uu = torch.zeros_like(vv, device=vv.device)
+    #     uu[0] = vv[0].clone()
+    #     for k in range(1, nk):
+    #         vk = vv[k].clone()
+    #         uk = torch.zeros_like(uu[k], device=vv.device)
+    #         for j in range(0, k):
+    #             uj = uu[j].clone()
+    #             uk = uk + (torch.dot(uj, vk) / torch.dot(uj, uj))*uj
+    #         uu[k] = vk - uk
+    #     for k in range(nk):
+    #         uk = uu[k].clone()
+    #         uu[k] = uk / uk.norm()
+    #     return uu
 
     def forward(self, inputs):
         # convert inputs from BCHW -> BHWC
@@ -111,7 +127,23 @@ class VectorQuantizerEMA(nn.Module):
             self._ema_w = nn.Parameter(self._ema_w * self._decay + (1 - self._decay) * dw)
             
             self._embedding.weight = nn.Parameter(self._ema_w / self._ema_cluster_size.unsqueeze(1))
-        
+            # self._embedding.weight = self.gram_schmidt(self._embedding.weight)
+            # nk = self._embedding.weight.size(0)
+            # uu = torch.zeros_like(self._embedding.weight, device=self._embedding.weight.device)
+            # uu[0] = self._embedding.weight[0].clone()
+            # for k in range(1, nk):
+            #     vk = self._embedding.weight[k].clone()
+            #     uk = torch.zeros_like(uu[k], device=self._embedding.weight.device)
+            #     for j in range(0, k):
+            #         uj = uu[j].clone()
+            #         uk = uk + (torch.dot(uj, vk) / torch.dot(uj, uj))*uj
+            #     uu[k] = vk - uk
+            # for k in range(nk):
+            #     uk = uu[k].clone()
+            #     uu[k] = uk / uk.norm()
+            # self._embedding.weight = nn.Parameter(uu)
+            q, r = torch.qr(self._embedding.weight)
+            self._embedding.weight = nn.Parameter(q / torch.norm(q, dim=0)) #/ torch.norm(nn.Parameter(q), dim=0)
         # Loss
         e_latent_loss = F.mse_loss(quantized.detach(), inputs)
         loss = self._commitment_cost * e_latent_loss
@@ -247,7 +279,7 @@ class myModel(nn.Module):
                 data_before = x
                 
                 b, c, h, w = x.size(0), x.size(1), x.size(2), x.size(3)
-                x = x - mu.view(1, c, 1, 1)
+                x = x - mu
                 x = x.view(b, c, -1)
                 x = torch.matmul(sigma_inv_rac, x.permute(2, 1, 0).contiguous())
                 x = x.permute(2, 1, 0).contiguous().view(b, c, h, w)
@@ -257,7 +289,7 @@ class myModel(nn.Module):
                 x = x.view(b, c, -1)
                 x = torch.matmul(sigma, torch.matmul(sigma_inv_rac, x.permute(2, 1, 0).contiguous()))
                 x = x.permute(2, 1, 0).contiguous().view(b, c, h, w)
-                x += mu.view(1, c, 1, 1)
+                x += mu
                 
                 data_recon = x
             else:
@@ -345,14 +377,11 @@ def insertion_and_train(ins):
     
             b, c, h, w = x.size(0), x.size(1), x.size(2), x.size(3)
     
-            # if i == 0 :
-            #     mu = torch.zeros((c, h, w)).to(device)
-            
-            # mu += (b/50000)*torch.mean(x, dim=0, keepdim=False)
             if i == 0 :
-                mu = torch.zeros(c).to(device)
+                mu = torch.zeros((c, h, w)).to(device)
             
-            mu += (b/50000)*torch.mean(x, dim=[0,2,3], keepdim=False)
+            mu += (b/50000)*torch.mean(x, dim=0, keepdim=False)
+            
             
         for i, (images, target) in enumerate(DataLoader(training_data, 
                                  batch_size=256, 
@@ -364,22 +393,16 @@ def insertion_and_train(ins):
             
             b, c, h, w = x.size(0), x.size(1), x.size(2), x.size(3)
     
-            # if i == 0 :
-            #     sigma = torch.zeros((h*w, c, c)).to(device)
-             
-            # x -= mu
-            # x = x.view(b, c, -1)
-            # sigma += (1/49999)*torch.matmul(x.permute(2, 1, 0).contiguous(), x.permute(2, 0, 1).contiguous()) #/ (c-1)   #row means were estimated from the data.
             if i == 0 :
-                sigma = torch.zeros((c, c)).to(device)
+                sigma = torch.zeros((h*w, c, c)).to(device)
              
-            x -= mu.view(1, c, 1, 1)
+            x -= mu
             x = x.view(b, c, -1)
-            sigma += (1/49999)*torch.mean(torch.matmul(x.permute(2, 1, 0).contiguous(), x.permute(2, 0, 1).contiguous()), dim=0, keepdim=False) #/ (c-1)   #row means were estimated from the data.
-                        
+            sigma += (1/49999)*torch.matmul(x.permute(2, 1, 0).contiguous(), x.permute(2, 0, 1).contiguous()) #/ (c-1)   #row means were estimated from the data.
+            
         u, s, v = torch.svd(sigma.cpu())
         # sigma_inv_rac = torch.matmul(torch.matmul(u, torch.diag_embed(1/torch.sqrt(s+1e-5))), u.transpose(1, 2))
-        sigma_inv_rac = torch.matmul(torch.matmul(u, torch.diag_embed(1/torch.sqrt(s+1e-1))), u.t())
+        sigma_inv_rac = torch.matmul(torch.matmul(u, torch.diag_embed(1/torch.sqrt(s+1e-1))), u.transpose(1, 2))
         # sigma_inv_rac = torch.matmul(torch.matmul(u, torch.diag_embed(1/torch.sqrt(s+1e-9))), u.transpose(1, 2))
         # sigma_inv_rac = torch.matmul(torch.matmul(u, torch.diag_embed(1/torch.sqrt(s+10))), u.transpose(1, 2))
      ###

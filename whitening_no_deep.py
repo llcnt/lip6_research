@@ -38,8 +38,8 @@ device = torch.device("cuda:"+str(args.gpu) if torch.cuda.is_available() else "c
 
 training_data = datasets.CIFAR10(root="/data/leconte/data", train=True, download=True,
                                   transform=transforms.Compose([
-                                      # transforms.RandomHorizontalFlip(),
-                                      # transforms.RandomCrop(32, 4),
+                                      transforms.RandomHorizontalFlip(),
+                                      transforms.RandomCrop(32, 4),
                                       transforms.ToTensor(),
                                       transforms.Normalize((0.49139968,  0.48215841,  0.44653091), (0.24703223,  0.24348513,  0.26158784))
                                   ]))
@@ -111,7 +111,7 @@ class VectorQuantizerEMA(nn.Module):
             self._ema_w = nn.Parameter(self._ema_w * self._decay + (1 - self._decay) * dw)
             
             self._embedding.weight = nn.Parameter(self._ema_w / self._ema_cluster_size.unsqueeze(1))
-        
+            # print('codebook', self._embedding.weight)
         # Loss
         e_latent_loss = F.mse_loss(quantized.detach(), inputs)
         loss = self._commitment_cost * e_latent_loss
@@ -171,6 +171,7 @@ class compression_model(nn.Module):
         
         x = self._pre_vq_conv(x)
         loss, quantized, perplexity, encodings = self._vq_vae(x)
+        codebook = self._vq_vae._embedding.weight
         x_recon = self._post_vq_conv(quantized)
                 
         # x_recon = x_recon.view(b, c, -1)
@@ -179,7 +180,7 @@ class compression_model(nn.Module):
         # x_recon += mu
         
         
-        return loss, x_recon, perplexity
+        return loss, x_recon, perplexity, codebook
 
 #%%
 ### vgg model
@@ -217,14 +218,14 @@ class myModel(nn.Module):
     def __init__(self, insertion_layer, num_embeddings, embedding_dim, commitment_cost, decay):
         super(myModel,self).__init__()
         vgg_model = VGGModel()	
-        vgg_model.load_state_dict(torch.load('/data/leconte/vggmodel.pt', map_location="cuda:"+str(args.gpu)))
+        # vgg_model.load_state_dict(torch.load('/data/leconte/vggmodel.pt', map_location="cuda:"+str(args.gpu)))
         vgg_list = list(vgg_model.features.children()) + list(vgg_model.classifier.children())
         self.final_list = []
         self.final_list_classif = []
 
         for i, layer in enumerate(list(vgg_model.features.children())):
             for param in layer.parameters():
-                param.requires_grad = False
+                param.requires_grad = True
             if i == insertion_layer:
                 input_encoder_channels = vgg_list[i-1].out_channels 
                 vqvae = compression_model(input_encoder_channels, num_embeddings, embedding_dim, commitment_cost, decay)
@@ -232,11 +233,11 @@ class myModel(nn.Module):
                 self.is_compression = len(self.final_list) - 1
             self.final_list.append(layer)
         self.features = nn.Sequential(*self.final_list)
-        self.codebook = vqvae._vq_vae._embedding.weight
+        self.codebook = self.features[self.is_compression]._vq_vae._embedding.weight
         
         for i, layer in enumerate(list(vgg_model.classifier.children())):
             for param in layer.parameters():
-                param.requires_grad = False
+                param.requires_grad = True
             self.final_list_classif.append(layer)
         self.classifier = nn.Sequential(*self.final_list_classif)
         
@@ -252,7 +253,7 @@ class myModel(nn.Module):
                 x = torch.matmul(sigma_inv_rac, x.permute(2, 1, 0).contiguous())
                 x = x.permute(2, 1, 0).contiguous().view(b, c, h, w)
                 
-                loss, x, perplexity = layer(x)
+                loss, x, perplexity, codebook = layer(x)
                 
                 x = x.view(b, c, -1)
                 x = torch.matmul(sigma, torch.matmul(sigma_inv_rac, x.permute(2, 1, 0).contiguous()))
@@ -263,30 +264,30 @@ class myModel(nn.Module):
             else:
                 x = layer(x)
         x = x.view(x.size(0), -1)
-        return loss, self.classifier(x), perplexity, data_before, data_recon
+        return loss, self.classifier(x), perplexity, data_before, data_recon, codebook
     
-#%%
-###  model (vgg+)
+# #%%
+# ###  model (vgg+)
 
-class model_vgg_cut(nn.Module):
-    def __init__(self, insertion_layer):
-        super(model_vgg_cut,self).__init__()
-        vgg_model = VGGModel()	
-        vgg_model.load_state_dict(torch.load('/data/leconte/vggmodel.pt', map_location="cuda:"+str(args.gpu)))
-        vgg_list = list(vgg_model.features.children())[:insertion_layer]
-        self.final_list = []
+# class model_vgg_cut(nn.Module):
+#     def __init__(self, insertion_layer):
+#         super(model_vgg_cut,self).__init__()
+#         vgg_model = VGGModel()	
+#         vgg_model.load_state_dict(torch.load('/data/leconte/vggmodel.pt', map_location="cuda:"+str(args.gpu)))
+#         vgg_list = list(vgg_model.features.children())[:insertion_layer]
+#         self.final_list = []
 
-        for i, layer in enumerate(vgg_list):
-            for param in layer.parameters():
-                param.requires_grad = False
-            self.final_list.append(layer)
-        self.features = nn.Sequential(*self.final_list)
+#         for i, layer in enumerate(vgg_list):
+#             for param in layer.parameters():
+#                 param.requires_grad = False
+#             self.final_list.append(layer)
+#         self.features = nn.Sequential(*self.final_list)
         
  	    
-    def forward(self,x):
-        for i, layer in enumerate(self.features):
-            x = layer(x)
-        return x
+#     def forward(self,x):
+#         for i, layer in enumerate(self.features):
+#             x = layer(x)
+#         return x
 #%%
 ### Training
 batch_size = 128 # 32 #64 #128
@@ -331,60 +332,44 @@ def insertion_and_train(ins):
     train_epochs_Acc1 = []
     train_epochs_Acc5 = []
     
-    with torch.no_grad():
-        vgg_model = model_vgg_cut(model.is_compression).to(device)
-        
-        ### Whitening on training set
-        for i, (images, target) in enumerate(DataLoader(training_data, 
-                                 batch_size=256, 
-                                 shuffle=True,
-                                 pin_memory=True)): #50000/256 ~ 200 steps 
-            images = images.to(device)
-        
-            x = vgg_model(images)
-    
-            b, c, h, w = x.size(0), x.size(1), x.size(2), x.size(3)
-    
-            # if i == 0 :
-            #     mu = torch.zeros((c, h, w)).to(device)
-            
-            # mu += (b/50000)*torch.mean(x, dim=0, keepdim=False)
-            if i == 0 :
-                mu = torch.zeros(c).to(device)
-            
-            mu += (b/50000)*torch.mean(x, dim=[0,2,3], keepdim=False)
-            
-        for i, (images, target) in enumerate(DataLoader(training_data, 
-                                 batch_size=256, 
-                                 shuffle=True,
-                                 pin_memory=True)): #50000/256 ~ 200 steps 
-            images = images.to(device)
-                
-            x = vgg_model(images)
-            
-            b, c, h, w = x.size(0), x.size(1), x.size(2), x.size(3)
-    
-            # if i == 0 :
-            #     sigma = torch.zeros((h*w, c, c)).to(device)
-             
-            # x -= mu
-            # x = x.view(b, c, -1)
-            # sigma += (1/49999)*torch.matmul(x.permute(2, 1, 0).contiguous(), x.permute(2, 0, 1).contiguous()) #/ (c-1)   #row means were estimated from the data.
-            if i == 0 :
-                sigma = torch.zeros((c, c)).to(device)
-             
-            x -= mu.view(1, c, 1, 1)
-            x = x.view(b, c, -1)
-            sigma += (1/49999)*torch.mean(torch.matmul(x.permute(2, 1, 0).contiguous(), x.permute(2, 0, 1).contiguous()), dim=0, keepdim=False) #/ (c-1)   #row means were estimated from the data.
-                        
-        u, s, v = torch.svd(sigma.cpu())
-        # sigma_inv_rac = torch.matmul(torch.matmul(u, torch.diag_embed(1/torch.sqrt(s+1e-5))), u.transpose(1, 2))
-        sigma_inv_rac = torch.matmul(torch.matmul(u, torch.diag_embed(1/torch.sqrt(s+1e-1))), u.t())
-        # sigma_inv_rac = torch.matmul(torch.matmul(u, torch.diag_embed(1/torch.sqrt(s+1e-9))), u.transpose(1, 2))
-        # sigma_inv_rac = torch.matmul(torch.matmul(u, torch.diag_embed(1/torch.sqrt(s+10))), u.transpose(1, 2))
-     ###
-    
+  
+    ###
+    coherence_matrices = []
+    print(torch.matmul(model.codebook/torch.norm(model.codebook, dim=1).view((model.codebook.size(0),1)), (model.codebook/torch.norm(model.codebook, dim=1).view((model.codebook.size(0),1))).t()))
+    coherence_matrices.append(torch.matmul(model.codebook/torch.norm(model.codebook, dim=1).view((model.codebook.size(0),1)), (model.codebook/torch.norm(model.codebook, dim=1).view((model.codebook.size(0),1))).t()).cpu().detach())
+
     for epoch in range(args.epochs):
+
+        with torch.no_grad():  
+            ### Whitening on training set
+            for i, (images, target) in enumerate(DataLoader(training_data, 
+                                     batch_size=256, 
+                                     shuffle=True,
+                                     pin_memory=True)): #50000/256 ~ 200 steps 
+                images = images.to(device)
+                _, _, _, x, _, _ = model(images, torch.zeros(args.embedding_dim).to(device), torch.zeros((args.embedding_dim, args.embedding_dim)).to(device), torch.zeros((args.embedding_dim, args.embedding_dim)).to(device))
+
+                b, c, h, w = x.size(0), x.size(1), x.size(2), x.size(3)
+                if i == 0 :
+                    mu = torch.zeros(c).to(device)
+                mu += (b/50000)*torch.mean(x, dim=[0,2,3], keepdim=False)
+                
+            for i, (images, target) in enumerate(DataLoader(training_data, 
+                                     batch_size=256, 
+                                     shuffle=True,
+                                     pin_memory=True)): #50000/256 ~ 200 steps 
+                images = images.to(device)
+                _, _, _, x, _, _ = model(images, torch.zeros(args.embedding_dim).to(device), torch.zeros((args.embedding_dim, args.embedding_dim)).to(device), torch.zeros((args.embedding_dim, args.embedding_dim)).to(device))
+                b, c, h, w = x.size(0), x.size(1), x.size(2), x.size(3)
+                if i == 0 :
+                    sigma = torch.zeros((c, c)).to(device)
+                x -= mu.view(1, c, 1, 1)
+                x = x.view(b, c, -1)
+                sigma += (1/49999)*torch.mean(torch.matmul(x.permute(2, 1, 0).contiguous(), x.permute(2, 0, 1).contiguous()), dim=0, keepdim=False) #/ (c-1)   #row means were estimated from the data.
+                            
+            u, s, v = torch.svd(sigma.cpu())
+            sigma_inv_rac = torch.matmul(torch.matmul(u, torch.diag_embed(1/torch.sqrt(s+1e-1))), u.t())
+        
         
         ### adapt lr
         adjust_learning_rate(optimizer, epoch)
@@ -397,7 +382,7 @@ def insertion_and_train(ins):
         train_res_perplexity = []
         train_res_classif_loss = []
         train_res_vq_loss = []
-
+        
         print('%d epoch' % (epoch+1))
         for i, (images, target) in enumerate(training_loader): #50000/256 ~ 200 steps 
         
@@ -412,7 +397,7 @@ def insertion_and_train(ins):
             
             optimizer.zero_grad()
         
-            vq_loss, output, perplexity, data_before, data_recon = model(images, mu.to(device), sigma.to(device), sigma_inv_rac.to(device))
+            vq_loss, output, perplexity, data_before, data_recon, codebook = model(images, mu.to(device), sigma.to(device), sigma_inv_rac.to(device))
 
             data_variance = torch.var(data_before)
             # print(data_variance.item())
@@ -441,6 +426,11 @@ def insertion_and_train(ins):
         print('vq_loss: %.3f' % np.mean(train_res_vq_loss))
 
         print()
+        
+        print(torch.matmul(codebook/torch.norm(codebook, dim=1).view((codebook.size(0),1)), (codebook/torch.norm(codebook, dim=1).view((codebook.size(0),1))).t()))
+        coherence_matrices.append(torch.matmul(codebook/torch.norm(codebook, dim=1).view((codebook.size(0),1)), (codebook/torch.norm(codebook, dim=1).view((codebook.size(0),1))).t()).cpu().detach())
+
+
         epochs_train_res_recon_error.append(np.mean(train_res_recon_error))
         epochs_train_res_perplexity.append(np.mean(train_res_perplexity))
         epochs_train_res_classif_loss.append(np.mean(train_res_classif_loss))
@@ -455,7 +445,7 @@ def insertion_and_train(ins):
                 images = images.to(device)
                 target = target.to(device)
                 # compute output
-                vq_loss, output, perplexity, data_before, data_recon = model(images, mu.to(device), sigma.to(device), sigma_inv_rac.to(device))
+                vq_loss, output, perplexity, data_before, data_recon, codebook = model(images, mu.to(device), sigma.to(device), sigma_inv_rac.to(device))
     
                 # measure accuracy and record loss
                 acc1, acc5 = accuracy(output, target, topk=(1, 5))
@@ -475,7 +465,7 @@ def insertion_and_train(ins):
                 images = images.to(device)
                 target = target.to(device)
                 # compute output
-                vq_loss, output, perplexity, data_before, data_recon = model(images, mu.to(device), sigma.to(device), sigma_inv_rac.to(device))
+                vq_loss, output, perplexity, data_before, data_recon, codebook = model(images, mu.to(device), sigma.to(device), sigma_inv_rac.to(device))
     
                 # measure accuracy and record loss
                 acc1, acc5 = accuracy(output, target, topk=(1, 5))
@@ -487,6 +477,9 @@ def insertion_and_train(ins):
         print('accuracy_top_5: %.3f' % np.mean(Acc5))
         epochs_Acc1.append(np.mean(Acc1))
         epochs_Acc5.append(np.mean(Acc5))
+        
+    with open("/data/leconte/co_mat4/coherence_matrices"+"_"+str(ins)+'_'+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
+        pickle.dump(coherence_matrices, fp)
         
     return epochs_train_res_recon_error, epochs_train_res_perplexity, epochs_train_res_classif_loss, epochs_train_res_vq_loss, epochs_Acc1, epochs_Acc5, train_epochs_Acc1, train_epochs_Acc5
 
@@ -520,22 +513,22 @@ def main():
         
         
         
-    with open("pretrained_train_res_recon_error"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
-        pickle.dump(epochs_train_res_recon_error, fp)
-    with open("pretrained_train_res_perplexity"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
-        pickle.dump(epochs_train_res_perplexity, fp)
-    with open("pretrained_train_res_classif_loss"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
-        pickle.dump(epochs_train_res_classif_loss, fp)
-    with open("pretrained_train_res_vq_loss"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
-        pickle.dump(epochs_train_res_vq_loss, fp)
-    with open("pretrained_Acc1"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
+    # with open("pretrained_train_res_recon_error"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
+    #     pickle.dump(epochs_train_res_recon_error, fp)
+    # with open("pretrained_train_res_perplexity"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
+    #     pickle.dump(epochs_train_res_perplexity, fp)
+    # with open("pretrained_train_res_classif_loss"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
+    #     pickle.dump(epochs_train_res_classif_loss, fp)
+    # with open("pretrained_train_res_vq_loss"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
+    #     pickle.dump(epochs_train_res_vq_loss, fp)
+    with open("/data/leconte/co_mat4/Acc1"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
         pickle.dump(epochs_Acc1, fp)
-    with open("pretrained_Acc5"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
-        pickle.dump(epochs_Acc5, fp)
-    with open("pretrained_train_Acc1"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
+    # with open("pretrained_Acc5"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
+    #     pickle.dump(epochs_Acc5, fp)
+    with open("/data/leconte/co_mat4/train_Acc1"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
         pickle.dump(train_epochs_Acc1, fp)
-    with open("pretrained_train_Acc5"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
-        pickle.dump(train_epochs_Acc5, fp)
+    # with open("pretrained_train_Acc5"+"_"+str(args.epochs)+"_"+str(args.embedding_dim)+"_"+str(args.num_embeddings)+"_"+str(args.gpu)+"_"+str(args.learning_rate)+".txt", "wb") as fp:   #Pickling
+    #     pickle.dump(train_epochs_Acc5, fp)
         
 #%%
 ### Adapt the learning rate through iterations
