@@ -242,12 +242,16 @@ class myModel(nn.Module):
         self.classifier = nn.Sequential(*self.final_list_classif)
         
  	    
-    def forward(self,x, mu, sigma, sigma_inv_rac):
+    def forward(self,x, mu=None, sigma=None, sigma_inv_rac=None):
         for i, layer in enumerate(self.features):
             if i == self.is_compression:
                 data_before = x
                 
                 b, c, h, w = x.size(0), x.size(1), x.size(2), x.size(3)
+                if mu==None and sigma==None and sigma_inv_rac==None:
+                    mu = torch.zeros(c).to(device)
+                    sigma = torch.zeros((c,c)).to(device)
+                    sigma_inv_rac = torch.zeros((c,c)).to(device)
                 x = x - mu.view(1, c, 1, 1)
                 x = x.view(b, c, -1)
                 x = torch.matmul(sigma_inv_rac, x.permute(2, 1, 0).contiguous())
@@ -347,7 +351,7 @@ def insertion_and_train(ins):
                                      shuffle=True,
                                      pin_memory=True)): #50000/256 ~ 200 steps 
                 images = images.to(device)
-                _, _, _, x, _, _ = model(images, torch.zeros(args.embedding_dim).to(device), torch.zeros((args.embedding_dim, args.embedding_dim)).to(device), torch.zeros((args.embedding_dim, args.embedding_dim)).to(device))
+                _, _, _, x, _, _ = model(images)
 
                 b, c, h, w = x.size(0), x.size(1), x.size(2), x.size(3)
                 if i == 0 :
@@ -359,7 +363,7 @@ def insertion_and_train(ins):
                                      shuffle=True,
                                      pin_memory=True)): #50000/256 ~ 200 steps 
                 images = images.to(device)
-                _, _, _, x, _, _ = model(images, torch.zeros(args.embedding_dim).to(device), torch.zeros((args.embedding_dim, args.embedding_dim)).to(device), torch.zeros((args.embedding_dim, args.embedding_dim)).to(device))
+                _, _, _, x, _, _ = model(images)
                 b, c, h, w = x.size(0), x.size(1), x.size(2), x.size(3)
                 if i == 0 :
                     sigma = torch.zeros((c, c)).to(device)
@@ -407,6 +411,7 @@ def insertion_and_train(ins):
             
             # print(output.shape, target.shape)
             classif_loss = nn.CrossEntropyLoss()(output, target)
+            loss += 1000*classif_loss
             
             loss.backward()
         
